@@ -64,43 +64,40 @@ def generate_storyboard(segments):
     with open("storyboard.json", "w") as f: json.dump(scenes, f, indent=4)
     return scenes
 
-# --- 5. VIDEO COMPILER ---
 def compile_video(scenes, audio_path="audio.mp3", output_path="final_video.mp4"):
     print("--- 5. Compiling Video ---")
     
-    # Debug: Check if images exist
-    for scene in scenes:
-        if not os.path.exists(scene['image_path']):
-            print(f"❌ ERROR: Missing image file: {scene['image_path']}")
-            return
+    # 1. Normalize images: Ensure they are all JPG/PNG and readable
+    # We will use ffmpeg to convert them to a uniform format first to fix 'status 187'
+    for i, scene in enumerate(scenes):
+        normalized_path = f"norm_{i:03d}.png"
+        # Force convert to ensure the pixel format is compatible with yuv420p
+        # This handles bad image headers that might be causing the crash
+        subprocess.run(["ffmpeg", "-y", "-i", scene['image_path'], "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280", normalized_path], check=True)
+        scene['image_path'] = normalized_path
 
+    # 2. Generate concat file with the normalized paths
     with open("ffmpeg_concat.txt", "w") as f:
         for i, scene in enumerate(scenes):
-            img_path = os.path.abspath(scene['image_path'])
-            f.write(f"file '{img_path}'\n")
+            f.write(f"file '{scene['image_path']}'\n")
             duration = (scenes[i+1]["start_time"] - scene["start_time"]) if i < len(scenes)-1 else 2.0
             f.write(f"duration {max(0.1, duration):.2f}\n")
-        f.write(f"file '{os.path.abspath(scenes[-1]['image_path'])}'\n")
+        f.write(f"file '{scenes[-1]['image_path']}'\n")
     
-    # We use 'which ffmpeg' to find the path in the environment
+    # 3. Final Compile
     try:
-        ffmpeg_path = subprocess.check_output(["which", "ffmpeg"]).decode().strip()
-        print(f"Using FFmpeg at: {ffmpeg_path}")
-        
-        cmd = [
-            ffmpeg_path, "-y", "-f", "concat", "-safe", "0", 
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
             "-i", "ffmpeg_concat.txt", "-i", audio_path, 
             "-c:v", "libx264", "-pix_fmt", "yuv420p", 
             "-c:a", "aac", "-shortest", output_path
-        ]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print(f"✅ Video compiled: {output_path}")
-        
+        ], check=True)
+        print(f"✅ Video compiled successfully: {output_path}")
     except subprocess.CalledProcessError as e:
-        print("❌ FFmpeg failed!")
-        print("Stdout:", e.stdout)
-        print("Stderr:", e.stderr)
+        print("❌ FFmpeg compilation failed. Check image formats.")
         raise e
+
+
 # --- MASTER ---
 def run_pipeline():
     data = generate_curiosity_script()
