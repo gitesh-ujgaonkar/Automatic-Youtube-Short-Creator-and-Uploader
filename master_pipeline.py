@@ -6,8 +6,10 @@ import edge_tts
 import requests
 import urllib.parse
 import subprocess
+import time
 from groq import Groq
 from youtube_uploader import upload_short_to_youtube
+
 
 # Setup
 nest_asyncio.apply()
@@ -49,18 +51,45 @@ def transcribe_audio(audio_path="audio.mp3"):
 # --- 4. PROMPT & IMAGE GENERATOR (API-based) ---
 def generate_storyboard(segments):
     print("--- 4. Generating Visuals ---")
-    system_prompt = "Output raw JSON array of scenes. Each has 'start_time', 'end_time', and 'visual_prompt'. Prefix prompt with: 'Flat vector art, vintage parchment paper background, sepia palette. A minimalist silhouette of an explorer...'"
-    response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": json.dumps(segments)}], response_format={"type": "json_object"})
+    system_prompt = "Output raw JSON array of scenes. Each has 'start_time', 'end_time', and 'visual_prompt'. Prefix prompt with: 'Flat vector art, vintage parchment paper background, sepia color palette. A minimalist silhouette of an explorer...'"
+    
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile", 
+        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": json.dumps(segments)}], 
+        response_format={"type": "json_object"}
+    )
     scenes = json.loads(response.choices[0].message.content)["scenes"]
     
     for i, scene in enumerate(scenes):
-        print(f"Fetching scene {i+1}...")
         prompt = urllib.parse.quote(scene["visual_prompt"])
-        response = requests.get(f"https://image.pollinations.ai/prompt/{prompt}?width=768&height=1344&nologo=true")
         img_path = f"scene_{i:03d}.png"
-        with open(img_path, 'wb') as f: f.write(response.content)
-        scene["image_path"] = img_path
-    
+        
+        # --- Retry Logic ---
+        success = False
+        for attempt in range(3):
+            try:
+                print(f"Fetching scene {i+1} (Attempt {attempt+1})...")
+                url = f"https://image.pollinations.ai/prompt/{prompt}?width=768&height=1344&nologo=true&seed={i+attempt}"
+                response = requests.get(url, timeout=60) # Increased timeout to 60s
+                
+                if response.status_code == 200 and len(response.content) > 1000:
+                    with open(img_path, 'wb') as f:
+                        f.write(response.content)
+                    scene["image_path"] = img_path
+                    success = True
+                    break
+                else:
+                    print(f"Attempt {attempt+1} failed (Status: {response.status_code})")
+            except Exception as e:
+                print(f"Attempt {attempt+1} error: {e}")
+            time.sleep(5) # Wait 5 seconds before retrying
+        
+        if not success:
+            print(f"❌ Critical Failure: Could not generate scene {i+1}")
+            # Fallback: create a blank 1x1 pixel image so FFmpeg doesn't crash
+            with open(img_path, 'wb') as f: f.write(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
+            scene["image_path"] = img_path
+
     with open("storyboard.json", "w") as f: json.dump(scenes, f, indent=4)
     return scenes
 
