@@ -47,7 +47,7 @@ def generate_curiosity_script():
     
     system_prompt = f"""You are a viral YouTube Shorts scriptwriter. 
     IMPORTANT: Do NOT write about these topics, they have been done: {history_str}
-    Output ONLY in JSON: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}
+    Output ONLY in JSON: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}"""
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -166,15 +166,22 @@ def compile_video(scenes, audio_path="audio.mp3", output_path="final_video.mp4")
         raise e
 
 
-# --- MASTER ---
 def run_pipeline():
     data = generate_curiosity_script()
+    save_topic(data["title"])
     with open("metadata.json", "w") as f: json.dump(data, f)
     asyncio.run(generate_audio(data["script"]))
     segments = transcribe_audio()
     scenes = generate_storyboard(segments)
     compile_video(scenes)
     upload_short_to_youtube("final_video.mp4", "metadata.json")
+    
+    # Push history
+    subprocess.run(["git", "config", "--global", "user.name", "github-actions"])
+    subprocess.run(["git", "config", "--global", "user.email", "github-actions@github.com"])
+    subprocess.run(["git", "add", "history.json"])
+    subprocess.run(["git", "commit", "-m", "Update history"])
+    subprocess.run(["git", "push"])
 
 if __name__ == "__main__":
     run_pipeline()
