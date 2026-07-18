@@ -16,43 +16,38 @@ def authenticate_youtube():
     return build("youtube", "v3", credentials=creds)
 
 def upload_short_to_youtube(video_path="final_video.mp4", metadata_path="metadata.json"):
-    # ... (Keep your existing file checks and metadata load) ...
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
 
-    # CLEANUP LOGIC:
-    # 1. Remove '#' from all tags (YouTube tags don't use '#')
-    # 2. Remove empty strings
-    # 3. Ensure no single tag exceeds 100 characters
-    cleaned_tags = []
-    for tag in metadata.get("tags", []):
-        tag = str(tag).replace("#", "").strip()
-        if tag and len(tag) < 100:
-            cleaned_tags.append(tag)
+    # 1. Define your safe, hardcoded tag list here
+    # This ignores whatever Groq sent in the JSON for 'tags'
+    safe_tags = [
+    "shorts", "youtube shorts", "animated facts", "science facts", 
+    "history facts", "mystery explained", "documentary short", 
+    "fun facts", "daily facts", "trivia", "kurzgesagt style", 
+    "space facts", "psychology facts", "weird history", 
+    "crazy facts", "science explained", "history explained", 
+    "digital art", "fascinating facts", "brain facts", 
+    "universe mysteries", "deep dive", "fast facts", "quick facts", 
+    "smart shorts", "educational shorts", "trivia shorts", 
+    "viral facts", "top 10 facts", "fact of the day", 
+    "brain teaser", "knowledge"
+]
 
-    # 4. Enforce the 500-character total limit for the WHOLE list
-    final_tags = []
-    current_length = 0
-    for tag in cleaned_tags:
-        # +1 accounts for the comma
-        if current_length + len(tag) + 1 <= 495:
-            final_tags.append(tag)
-            current_length += len(tag) + 1
-        else:
-            break
+    print(f"DEBUG: Attempting to upload with tags: {safe_tags}")
 
-    # 5. Build Request
+    youtube = authenticate_youtube()
+    
+    # 2. Build Request with strict safe_tags
     request_body = {
         "snippet": {
-            "title": title,
-            "description": formatted_description,
-            "tags": final_tags, # Use the cleaned, limited list
+            "title": f"{metadata['title']} | Know Lien Exp 🤯 #Shorts",
+            "description": f"{metadata['description']}\n\n🧠 Subscribe for daily animated documentaries!",
+            "tags": safe_tags, # Using our local safe list
             "categoryId": "27"
         },
-        "status": {
-            "privacyStatus": "private",
-            "selfDeclaredMadeForKids": False
-        }
+        "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}
     }
-    
 
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     response = youtube.videos().insert(part="snippet,status", body=request_body, media_body=media).execute()
