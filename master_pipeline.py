@@ -17,7 +17,7 @@ nest_asyncio.apply()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 VOICE_ID = "en-US-ChristopherNeural"
 
-# --- 1. SCRIPT GENERATOR ---
+# --- 0. HISTORY MANAGEMENT ---
 def get_history():
     if os.path.exists("history.json"):
         with open("history.json", "r") as f:
@@ -30,26 +30,47 @@ def save_topic(title):
     with open("history.json", "w") as f:
         json.dump(history, f, indent=4)
 
+def is_too_similar(new_title, history):
+    new_clean = new_title.lower().strip()
+    for past_title in history:
+        past_clean = past_title.lower().strip()
+        # Checks for exact match or significant keyword overlap
+        if new_clean == past_clean or new_clean in past_clean or past_clean in new_clean:
+            return True
+    return False
+
+# --- 1. SCRIPT GENERATOR ---
 def generate_curiosity_script():
     print("--- 1. Generating Script ---")
     history = get_history()
-    history_str = ", ".join(history[-50:]) # Send last 50 topics to avoid boredom
+    history_str = ", ".join(history[-50:])
     
-    system_prompt = f"""You are a viral YouTube Shorts scriptwriter.
-    TASK: Write a 60-second documentary script.
-    RULES: 140-160 words, curiosity hook.
-    IMPORTANT: Do NOT write about these topics, they have been done already: {history_str}
-    Output ONLY in JSON: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}"""
+    system_prompt = f"""You are a viral YouTube Shorts scriptwriter. 
+    IMPORTANT: Do NOT write about these topics, they have been done: {history_str}
+    Output ONLY in JSON: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}
     
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "system", "content": system_prompt}, 
-                  {"role": "user", "content": "Write a unique, fascinating short script on a new topic."}],
-        temperature=0.9,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
-
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Write a unique, fascinating short script on a new topic."}
+    ]
+    
+    for attempt in range(5):
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.9,
+            response_format={"type": "json_object"}
+        )
+        data = json.loads(response.choices[0].message.content)
+        
+        if is_too_similar(data.get("title", ""), history):
+            print(f"⚠️ Duplicate detected: {data['title']}. Retrying...")
+            messages.append({"role": "assistant", "content": json.dumps(data)})
+            messages.append({"role": "user", "content": "We already did this. Please provide a completely different topic."})
+        else:
+            print(f"✅ Unique topic approved: {data['title']}")
+            return data
+    return data
 # --- 2. AUDIO GENERATOR ---
 async def generate_audio(script_text):
     print("--- 2. Generating Audio ---")
