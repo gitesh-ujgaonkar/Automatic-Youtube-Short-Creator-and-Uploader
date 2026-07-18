@@ -6,6 +6,7 @@ import edge_tts
 import requests
 import urllib.parse
 import subprocess
+import random
 import time
 from groq import Groq
 from youtube_uploader import upload_short_to_youtube
@@ -17,16 +18,33 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 VOICE_ID = "en-US-ChristopherNeural"
 
 # --- 1. SCRIPT GENERATOR ---
+def get_history():
+    if os.path.exists("history.json"):
+        with open("history.json", "r") as f:
+            return json.load(f)
+    return []
+
+def save_topic(title):
+    history = get_history()
+    history.append(title)
+    with open("history.json", "w") as f:
+        json.dump(history, f, indent=4)
+
 def generate_curiosity_script():
     print("--- 1. Generating Script ---")
-    system_prompt = """You are a viral YouTube Shorts scriptwriter (Ink Explainer style).
-    TASK: Write a 60-second script based on a random fascinating topic.
-    RULES: 140-160 words, start with a 3-second curiosity gap hook, documentary tone.
-    Output ONLY in JSON: {"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}"""
+    history = get_history()
+    history_str = ", ".join(history[-50:]) # Send last 50 topics to avoid boredom
+    
+    system_prompt = f"""You are a viral YouTube Shorts scriptwriter.
+    TASK: Write a 60-second documentary script.
+    RULES: 140-160 words, curiosity hook.
+    IMPORTANT: Do NOT write about these topics, they have been done already: {history_str}
+    Output ONLY in JSON: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}"""
     
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": "Write a random fascinating short script."}],
+        messages=[{"role": "system", "content": system_prompt}, 
+                  {"role": "user", "content": "Write a unique, fascinating short script on a new topic."}],
         temperature=0.9,
         response_format={"type": "json_object"}
     )
