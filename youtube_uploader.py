@@ -46,7 +46,7 @@ def upload_short_to_youtube(video_path="final_video.mp4", metadata_path="metadat
             "tags": safe_tags, # Using our local safe list
             "categoryId": "27"
         },
-        "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}
+        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
     }
 
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
