@@ -132,38 +132,44 @@ def generate_storyboard(segments):
     with open("storyboard.json", "w") as f: json.dump(scenes, f, indent=4)
     return scenes
 
-def compile_video(scenes, audio_path="audio.mp3", output_path="final_video.mp4"):
-    print("--- 5. Compiling Video ---")
+# --- 4. COMPILE & SUBTITLE ---
+def apply_overlays(input_video, output_video, hook_text, sub_text):
+    print("--- 4. Applying Subtitles/Hooks ---")
+    font = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
     
-    # 1. Normalize images: Ensure they are all JPG/PNG and readable
-    # We will use ffmpeg to convert them to a uniform format first to fix 'status 187'
-    for i, scene in enumerate(scenes):
-        normalized_path = f"norm_{i:03d}.png"
-        # Force convert to ensure the pixel format is compatible with yuv420p
-        # This handles bad image headers that might be causing the crash
-        subprocess.run(["ffmpeg", "-y", "-i", scene['image_path'], "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280", normalized_path], check=True)
-        scene['image_path'] = normalized_path
+    # Split the hook into two lines for manual centering
+    words = hook_text.upper().split()
+    mid = len(words) // 2
+    line1 = " ".join(words[:mid])
+    line2 = " ".join(words[mid:])
+    
+    # Using individual drawtext filters for compatibility with older FFmpeg versions
+    filter_complex = (
+        f"drawtext=fontfile='{font}':text='{line1}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=100:shadowx=2:shadowy=2,"
+        f"drawtext=fontfile='{font}':text='{line2}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=160:shadowx=2:shadowy=2,"
+        f"drawtext=fontfile='{font}':text='{sub_text.upper()}':fontcolor=yellow:fontsize=60:x=(w-text_w)/2:y=h-200:shadowx=2:shadowy=2"
+    )
+    subprocess.run(["ffmpeg", "-y", "-i", input_video, "-vf", filter_complex, "-c:a", "copy", output_video], check=True)
 
-    # 2. Generate concat file with the normalized paths
+def compile_video(scenes, audio_path="audio.mp3", output_path="final_video.mp4"):
+    for i, scene in enumerate(scenes):
+        norm = f"norm_{i:03d}.png"
+        subprocess.run(["ffmpeg", "-y", "-i", scene['image_path'], "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280", norm], check=True)
+        scene['image_path'] = norm
+        
     with open("ffmpeg_concat.txt", "w") as f:
         for i, scene in enumerate(scenes):
             f.write(f"file '{scene['image_path']}'\n")
-            duration = (scenes[i+1]["start_time"] - scene["start_time"]) if i < len(scenes)-1 else 2.0
-            f.write(f"duration {max(0.1, duration):.2f}\n")
+            dur = (scenes[i+1]["start_time"] - scene["start_time"]) if i < len(scenes)-1 else 2.0
+            f.write(f"duration {max(0.1, dur):.2f}\n")
         f.write(f"file '{scenes[-1]['image_path']}'\n")
     
-    # 3. Final Compile
-    try:
-        subprocess.run([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
-            "-i", "ffmpeg_concat.txt", "-i", audio_path, 
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", 
-            "-c:a", "aac", "-shortest", output_path
-        ], check=True)
-        print(f"✅ Video compiled successfully: {output_path}")
-    except subprocess.CalledProcessError as e:
-        print("❌ FFmpeg compilation failed. Check image formats.")
-        raise e
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "ffmpeg_concat.txt", "-i", audio_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", "temp_raw.mp4"], check=True)
+    
+    # Apply subtitles
+    with open("transcript_timestamps.json", "r") as f: trans = json.load(f)
+    apply_overlays("temp_raw.mp4", output_path, trans[0]['text'], "LISTENING IS A")
+
 
 
 def run_pipeline():
@@ -176,11 +182,11 @@ def run_pipeline():
     compile_video(scenes)
     upload_short_to_youtube("final_video.mp4", "metadata.json")
     
-    # Push history
+    # Push updates
     subprocess.run(["git", "config", "--global", "user.name", "github-actions"])
     subprocess.run(["git", "config", "--global", "user.email", "github-actions@github.com"])
     subprocess.run(["git", "add", "history.json"])
-    subprocess.run(["git", "commit", "-m", "Update history"])
+    subprocess.run(["git", "commit", "-m", f"Update history: {data['title']}"])
     subprocess.run(["git", "push"])
 
 if __name__ == "__main__":
