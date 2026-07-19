@@ -196,7 +196,7 @@ def run_pipeline():
     segments = transcribe_audio()
     create_srt(segments)
     scenes = generate_storyboard(segments)
-    compile_video(scenes)
+    compile_video(scenes, segments[0]['text'])
     upload_short_to_youtube("final_video.mp4", "metadata.json")
     
     # Push updates
