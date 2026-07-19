@@ -133,6 +133,14 @@ def generate_storyboard(segments):
     return scenes
 
 # --- 4. COMPILE & SUBTITLE ---
+# Create SRT File
+def create_srt(segments, srt_path="subtitles.srt"):
+    with open(srt_path, "w", encoding="utf-8") as f:
+        for i, seg in enumerate(segments):
+            start = f"{int(seg['start_time']//3600):02}:{int((seg['start_time']%3600)//60):02}:{int(seg['start_time']%60):02},{int((seg['start_time']%1*1000)):03}"
+            end = f"{int(seg['end_time']//3600):02}:{int((seg['end_time']%3600)//60):02}:{int(seg['end_time']%60):02},{int((seg['end_time']%1*1000)):03}"
+            f.write(f"{i+1}\n{start} --> {end}\n{seg['text']}\n\n")
+            
 def apply_overlays(input_video, output_video, hook_text, sub_text):
     print("--- 4. Applying Subtitles/Hooks ---")
     font = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
@@ -151,24 +159,32 @@ def apply_overlays(input_video, output_video, hook_text, sub_text):
     )
     subprocess.run(["ffmpeg", "-y", "-i", input_video, "-vf", filter_complex, "-c:a", "copy", output_video], check=True)
 
-def compile_video(scenes, audio_path="audio.mp3", output_path="final_video.mp4"):
+def compile_video(scenes, hook_text, audio_path="audio.mp3", output_path="final_video.mp4"):
+    # Normalize images
     for i, scene in enumerate(scenes):
         norm = f"norm_{i:03d}.png"
         subprocess.run(["ffmpeg", "-y", "-i", scene['image_path'], "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280", norm], check=True)
         scene['image_path'] = norm
-        
+    
     with open("ffmpeg_concat.txt", "w") as f:
         for i, scene in enumerate(scenes):
             f.write(f"file '{scene['image_path']}'\n")
             dur = (scenes[i+1]["start_time"] - scene["start_time"]) if i < len(scenes)-1 else 2.0
             f.write(f"duration {max(0.1, dur):.2f}\n")
         f.write(f"file '{scenes[-1]['image_path']}'\n")
+
+    # Hardcode Subtitles (SRT) and Hook (Top text)
+    # Alignment=2 is bottom-center, MarginV=150 ensures it's above YouTube UI
+    style = "FontSize=40,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=150"
+    font = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+    hook_filter = f"drawtext=fontfile='{font}':text='{hook_text.upper()}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=100:shadowx=2:shadowy=2"
     
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "ffmpeg_concat.txt", "-i", audio_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", "temp_raw.mp4"], check=True)
-    
-    # Apply subtitles
-    with open("transcript_timestamps.json", "r") as f: trans = json.load(f)
-    apply_overlays("temp_raw.mp4", output_path, trans[0]['text'], "LISTENING IS A")
+    # Run FFmpeg to BIND the subtitles permanently to the video frames
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "ffmpeg_concat.txt", "-i", audio_path,
+        "-vf", f"{hook_filter},subtitles=subtitles.srt:force_style='{style}'",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", output_path
+    ], check=True)
 
 
 
@@ -178,6 +194,7 @@ def run_pipeline():
     with open("metadata.json", "w") as f: json.dump(data, f)
     asyncio.run(generate_audio(data["script"]))
     segments = transcribe_audio()
+    create_srt(segments)
     scenes = generate_storyboard(segments)
     compile_video(scenes)
     upload_short_to_youtube("final_video.mp4", "metadata.json")
