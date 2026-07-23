@@ -244,7 +244,7 @@ def compile_video(scenes, audio_path="audio.mp3", ass_path="subtitles.ass", outp
         "-f", "concat", "-safe", "0", "-i", "ffmpeg_concat.txt",
         "-i", audio_path,
         # Render ONLY the single dynamic 3-word ASS track (no hook, no overlapping SRT)
-        "-vf", f"ass={ass_path}",
+        "-vf", f"fps=30,ass={ass_path}", 
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
