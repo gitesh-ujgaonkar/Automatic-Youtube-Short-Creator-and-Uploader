@@ -21,8 +21,9 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
           pip install -r requirements.txt
+          echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | sudo debconf-set-selections
+          sudo apt-get install -y ffmpeg ttf-mscorefonts-installer
 
       - name: Create Config Files
         run: |
