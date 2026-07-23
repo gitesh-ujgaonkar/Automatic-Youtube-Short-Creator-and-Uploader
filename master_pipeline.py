@@ -78,14 +78,70 @@ async def generate_audio(script_text):
     await communicate.save("audio.mp3")
 
 # --- 3. TRANSCRIPTION (Groq Whisper) ---
-def transcribe_audio(audio_path="audio.mp3"):
-    print("--- 3. Transcribing ---")
-    with open(audio_path, "rb") as file:
-        transcription = client.audio.transcriptions.create(file=(audio_path, file.read()), model="whisper-large-v3", response_format="verbose_json")
-    
-    segments = [{"start_time": round(s['start'], 2), "end_time": round(s['end'], 2), "text": s['text'].strip()} for s in transcription.segments]
-    with open("transcript_timestamps.json", "w") as f: json.dump(segments, f, indent=4)
-    return segments
+def transcribe_audio(audio_path, client):
+    with open(audio_path, "rb") as audio_file:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="verbose_json",
+            timestamp_granularities=["word", "segment"] # Added for per-word sync
+        )
+    # Return the word-level data specifically
+    return transcript.words
+
+def chunk_words(words, chunk_size=3):
+    chunks, current = [], []
+    for w in words:
+        current.append(w)
+        ends_sentence = w["word"].strip().endswith((".", "!", "?"))
+        if len(current) == chunk_size or ends_sentence:
+            chunks.append(current)
+            current = []
+    if current:
+        chunks.append(current)
+    return chunks
+
+def format_ass_time(seconds):
+    """Converts seconds to ASS time format H:MM:SS.cc"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centisecs = int(round((seconds - int(seconds)) * 100))
+    if centisecs == 100:
+        secs += 1
+        centisecs = 0
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
+
+def create_ass_subtitles(chunks, output_filename="subtitles.ass"):
+    # WrapStyle: 2 prevents auto line-wrapping
+    # Fontsize: 58 (tuned for 720px width)
+    # Outline: 3, Shadow: 0
+    ass_header = """[Script Info]
+ScriptType: v4.00+
+WrapStyle: 2
+PlayResX: 720
+PlayResY: 1280
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,58,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,10,10,150,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    with open(output_filename, "w", encoding="utf-8") as f:
+        f.write(ass_header)
+        for chunk in chunks:
+            # Syncs exactly to the first word's start and the last word's end in the chunk
+            start_time = format_ass_time(chunk[0]['start'])
+            end_time = format_ass_time(chunk[-1]['end'])
+            
+            # Combine the words, removing leading/trailing spaces
+            text = " ".join([w['word'].strip() for w in chunk])
+            
+            # Alignment 5 places it exactly center screen. 
+            # (Change alignment to 2 for bottom-center if preferred)
+            f.write(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}\n")
 
 # --- 4. PROMPT & IMAGE GENERATOR (API-based) ---
 def generate_storyboard(segments):
@@ -141,62 +197,89 @@ def create_srt(segments, srt_path="subtitles.srt"):
             end = f"{int(seg['end_time']//3600):02}:{int((seg['end_time']%3600)//60):02}:{int(seg['end_time']%60):02},{int((seg['end_time']%1*1000)):03}"
             f.write(f"{i+1}\n{start} --> {end}\n{seg['text']}\n\n")
             
-def apply_overlays(input_video, output_video, hook_text, sub_text):
-    print("--- 4. Applying Subtitles/Hooks ---")
-    font = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+# def apply_overlays(input_video, output_video, hook_text, sub_text):
+#     print("--- 4. Applying Subtitles/Hooks ---")
+#     font = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
     
-    # Split the hook into two lines for manual centering
-    words = hook_text.upper().split()
-    mid = len(words) // 2
-    line1 = " ".join(words[:mid])
-    line2 = " ".join(words[mid:])
+#     # Split the hook into two lines for manual centering
+#     words = hook_text.upper().split()
+#     mid = len(words) // 2
+#     line1 = " ".join(words[:mid])
+#     line2 = " ".join(words[mid:])
     
-    # Using individual drawtext filters for compatibility with older FFmpeg versions
-    filter_complex = (
-        f"drawtext=fontfile='{font}':text='{line1}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=100:shadowx=2:shadowy=2,"
-        f"drawtext=fontfile='{font}':text='{line2}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=160:shadowx=2:shadowy=2,"
-        f"drawtext=fontfile='{font}':text='{sub_text.upper()}':fontcolor=yellow:fontsize=60:x=(w-text_w)/2:y=h-200:shadowx=2:shadowy=2"
-    )
-    subprocess.run(["ffmpeg", "-y", "-i", input_video, "-vf", filter_complex, "-c:a", "copy", output_video], check=True)
+#     # Using individual drawtext filters for compatibility with older FFmpeg versions
+#     filter_complex = (
+#         f"drawtext=fontfile='{font}':text='{line1}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=100:shadowx=2:shadowy=2,"
+#         f"drawtext=fontfile='{font}':text='{line2}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=160:shadowx=2:shadowy=2,"
+#         f"drawtext=fontfile='{font}':text='{sub_text.upper()}':fontcolor=yellow:fontsize=60:x=(w-text_w)/2:y=h-200:shadowx=2:shadowy=2"
+#     )
+#     subprocess.run(["ffmpeg", "-y", "-i", input_video, "-vf", filter_complex, "-c:a", "copy", output_video], check=True)
 
-def compile_video(scenes, hook_text, audio_path="audio.mp3", output_path="final_video.mp4"):
-    # Normalize images
+import subprocess
+
+def compile_video(scenes, audio_path="audio.mp3", ass_path="subtitles.ass", output_path="final_video.mp4"):
+    # 1. Normalize images to 720x1280 (Vertical Short aspect ratio)
     for i, scene in enumerate(scenes):
         norm = f"norm_{i:03d}.png"
-        subprocess.run(["ffmpeg", "-y", "-i", scene['image_path'], "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280", norm], check=True)
+        subprocess.run([
+            "ffmpeg", "-y", 
+            "-i", scene['image_path'], 
+            "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280", 
+            norm
+        ], check=True)
         scene['image_path'] = norm
     
+    # 2. Generate the FFmpeg concat playlist with timings
     with open("ffmpeg_concat.txt", "w") as f:
         for i, scene in enumerate(scenes):
             f.write(f"file '{scene['image_path']}'\n")
-            dur = (scenes[i+1]["start_time"] - scene["start_time"]) if i < len(scenes)-1 else 2.0
+            dur = (scenes[i+1]["start_time"] - scene["start_time"]) if i < len(scenes) - 1 else 2.0
             f.write(f"duration {max(0.1, dur):.2f}\n")
+        # Duplicating the last image line is required by FFmpeg concat filter
         f.write(f"file '{scenes[-1]['image_path']}'\n")
 
-    # Hardcode Subtitles (SRT) and Hook (Top text)
-    # Alignment=2 is bottom-center, MarginV=150 ensures it's above YouTube UI
-    style = "FontSize=40,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=150"
-    font = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    hook_filter = f"drawtext=fontfile='{font}':text='{hook_text.upper()}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=100:shadowx=2:shadowy=2"
-    
-    # Run FFmpeg to BIND the subtitles permanently to the video frames
+    # 3. Run FFmpeg: Concatenate visual scenes, mix audio, and burn in the ASS subtitles
     subprocess.run([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", "ffmpeg_concat.txt", "-i", audio_path,
-        "-vf", f"{hook_filter},subtitles=subtitles.srt:force_style='{style}'",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", output_path
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0", "-i", "ffmpeg_concat.txt",
+        "-i", audio_path,
+        # Render ONLY the single dynamic 3-word ASS track (no hook, no overlapping SRT)
+        "-vf", f"ass={ass_path}",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-shortest",
+        output_path
     ], check=True)
-
-
 
 def run_pipeline():
     data = generate_curiosity_script()
     save_topic(data["title"])
     with open("metadata.json", "w") as f: json.dump(data, f)
+    # 1. Generate Voice
     asyncio.run(generate_audio(data["script"]))
-    segments = transcribe_audio()
-    create_srt(segments)
+    # 2. Get Word-Level Transcription (Requires arguments)
+    words = transcribe_audio("audio.mp3", client)
+    # 3. Group into 3-word chunks
+    chunks = chunk_words(words)
+    # 4. Generate the ASS subtitle file (Replaces create_srt)
+    create_ass_subtitles(chunks)
+    # 5. Format chunks into 'segments' for the image generator.
+    # This prevents the LLM from trying to generate an image for every single word.
+    segments = []
+    for chunk in chunks:
+        text = " ".join([w['word'].strip() for w in chunk])
+        segments.append({
+            "start_time": chunk[0]['start'],
+            "end_time": chunk[-1]['end'],
+            "text": text
+        })
+        
+    # 6. Generate Storyboard using the combined 3-word segments
     scenes = generate_storyboard(segments)
-    compile_video(scenes, segments[0]['text'])
+    # 7. Compile Video (Defaults to "audio.mp3", "subtitles.ass", "final_video.mp4")
+    compile_video(scenes)
+    # 8. Upload
     upload_short_to_youtube("final_video.mp4", "metadata.json")
     
     # Push updates
@@ -205,6 +288,5 @@ def run_pipeline():
     subprocess.run(["git", "add", "history.json"])
     subprocess.run(["git", "commit", "-m", f"Update history: {data['title']}"])
     subprocess.run(["git", "push"])
-
 if __name__ == "__main__":
     run_pipeline()
