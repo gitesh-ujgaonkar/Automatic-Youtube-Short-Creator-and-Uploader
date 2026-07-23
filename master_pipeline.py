@@ -86,7 +86,8 @@ def transcribe_audio(audio_path, client):
             response_format="verbose_json",
             timestamp_granularities=["word", "segment"] 
         )
-    return transcript.words
+    # Return BOTH word-level and segment-level data
+    return transcript.words, transcript.segments
 
 def chunk_words(words, chunk_size=3):
     chunks, current = [], []
@@ -251,34 +252,29 @@ def compile_video(scenes, audio_path="audio.mp3", ass_path="subtitles.ass", outp
         output_path
     ], check=True)
 
+
 def run_pipeline():
     data = generate_curiosity_script()
     save_topic(data["title"])
     with open("metadata.json", "w") as f: json.dump(data, f)
+    
     # 1. Generate Voice
     asyncio.run(generate_audio(data["script"]))
-    # 2. Get Word-Level Transcription (Requires arguments)
-    words = transcribe_audio("audio.mp3", client)
-    # 3. Group into 3-word chunks
+    
+    # 2. Get both words AND sentence-level segments
+    words, segments = transcribe_audio("audio.mp3", client)
+    
+    # 3. Create 3-word dynamic subtitles (Fast Pacing)
     chunks = chunk_words(words)
-    # 4. Generate the ASS subtitle file (Replaces create_srt)
     create_ass_subtitles(chunks)
-    # 5. Format chunks into 'segments' for the image generator.
-    # This prevents the LLM from trying to generate an image for every single word.
-    segments = []
-    for chunk in chunks:
-        text = " ".join([w['word'].strip() for w in chunk])
-        segments.append({
-            "start_time": chunk[0]['start'],
-            "end_time": chunk[-1]['end'],
-            "text": text
-        })
-        
-    # 6. Generate Storyboard using the combined 3-word segments
+    
+    # 4. Generate Storyboard using sentence-level segments (Normal Image Pacing)
     scenes = generate_storyboard(segments)
-    # 7. Compile Video (Defaults to "audio.mp3", "subtitles.ass", "final_video.mp4")
+    
+    # 5. Compile Video
     compile_video(scenes)
-    # 8. Upload
+    
+    # 6. Upload
     upload_short_to_youtube("final_video.mp4", "metadata.json")
     
     # Push updates
@@ -287,5 +283,7 @@ def run_pipeline():
     subprocess.run(["git", "add", "history.json"])
     subprocess.run(["git", "commit", "-m", f"Update history: {data['title']}"])
     subprocess.run(["git", "push"])
+
+
 if __name__ == "__main__":
     run_pipeline()
