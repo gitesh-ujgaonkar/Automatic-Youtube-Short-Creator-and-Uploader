@@ -81,13 +81,11 @@ async def generate_audio(script_text):
 def transcribe_audio(audio_path, client):
     with open(audio_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
-            # Changed from "whisper-1" to Groq's supported Whisper model
             model="whisper-large-v3-turbo", 
             file=audio_file,
             response_format="verbose_json",
             timestamp_granularities=["word", "segment"] 
         )
-    # Return the word-level data specifically
     return transcript.words
 
 def chunk_words(words, chunk_size=3):
