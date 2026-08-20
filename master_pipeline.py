@@ -16,7 +16,7 @@ from youtube_uploader import upload_short_to_youtube
 nest_asyncio.apply()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 VOICE_ID = "en-US-ChristopherNeural"
-best_model = get_best_available_model(client)
+
 #--- Find Model
 def get_best_available_model(client):
     try:
@@ -49,6 +49,8 @@ def get_best_available_model(client):
         # Absolute failsafe in case of a network glitch fetching the list
         print(f"⚠️ Could not fetch model list. Defaulting to safe fallback. Error: {e}")
         return "openai/gpt-oss-120b"
+
+best_model = get_best_available_model(client)
 
 # --- 0. HISTORY MANAGEMENT ---
 def get_history():
