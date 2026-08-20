@@ -149,7 +149,7 @@ def generate_storyboard(segments):
     system_prompt = "Output raw JSON array of scenes. Each has 'start_time', 'end_time', and 'visual_prompt'. Prefix prompt with: 'Flat vector art, vintage parchment paper background, sepia color palette. A minimalist silhouette of an explorer...'"
     
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile", 
+        model="openai/gpt-oss-120b", 
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": json.dumps(segments)}], 
         response_format={"type": "json_object"}
     )
