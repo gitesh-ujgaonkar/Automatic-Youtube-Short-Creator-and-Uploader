@@ -16,6 +16,39 @@ from youtube_uploader import upload_short_to_youtube
 nest_asyncio.apply()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 VOICE_ID = "en-US-ChristopherNeural"
+best_model = get_best_available_model(client)
+#--- Find Model
+def get_best_available_model(client):
+    try:
+        # Fetch the live list of all active models from Groq
+        available_models = client.models.list()
+        
+        # Extract just the ID strings 
+        active_model_ids = [m.id for m in available_models.data]
+        
+        # Your prioritized list of models (best/most capable at the top)
+        preferred_models = [
+            "openai/gpt-oss-120b",  # Top choice
+            "qwen/qwen3.6-27b",     # Great secondary option
+            "llama3-70b-8192",      # Reliable older model
+            "mixtral-8x7b-32768"    # Fast fallback
+        ]
+        
+        # Loop through your list and pick the first one that is currently active
+        for model in preferred_models:
+            if model in active_model_ids:
+                print(f"✅ Auto-selected AI Model: {model}")
+                return model
+                
+        # If all preferred models are deprecated, just grab whatever the first active chat model is
+        fallback_model = active_model_ids[0]
+        print(f"⚠️ Preferred models missing. Auto-falling back to: {fallback_model}")
+        return fallback_model
+        
+    except Exception as e:
+        # Absolute failsafe in case of a network glitch fetching the list
+        print(f"⚠️ Could not fetch model list. Defaulting to safe fallback. Error: {e}")
+        return "openai/gpt-oss-120b"
 
 # --- 0. HISTORY MANAGEMENT ---
 def get_history():
@@ -56,7 +89,7 @@ def generate_curiosity_script():
     
     for attempt in range(5):
         response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model=best_model,
             messages=messages,
             temperature=0.9,
             response_format={"type": "json_object"}
@@ -149,7 +182,7 @@ def generate_storyboard(segments):
     system_prompt = "Output raw JSON array of scenes. Each has 'start_time', 'end_time', and 'visual_prompt'. Prefix prompt with: 'Flat vector art, vintage parchment paper background, sepia color palette. A minimalist silhouette of an explorer...'"
     
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b", 
+        model=best_model, 
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": json.dumps(segments)}], 
         response_format={"type": "json_object"}
     )
