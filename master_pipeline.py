@@ -181,46 +181,85 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # --- 4. PROMPT & IMAGE GENERATOR (API-based) ---
 def generate_storyboard(segments):
     print("--- 4. Generating Visuals ---")
-    system_prompt = "Output raw JSON array of scenes. Each has 'start_time', 'end_time', and 'visual_prompt'. Prefix prompt with: 'Flat vector art, vintage parchment paper background, sepia color palette. A minimalist silhouette of an explorer...'"
+    
+    # 1. Dynamically select the best active model
+    current_model = get_best_available_model(client)
+    
+    system_prompt = (
+        "Output raw JSON array or object containing 'scenes'. "
+        "Each scene object must contain 'start_time', 'end_time', and 'visual_prompt'. "
+        "Prefix prompt with: 'Flat vector art, vintage parchment paper background, sepia color palette. "
+        "A minimalist silhouette of an explorer...'"
+    )
     
     response = client.chat.completions.create(
-        model=best_model, 
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": json.dumps(segments)}], 
+        model=current_model, 
+        messages=[
+            {"role": "system", "content": system_prompt}, 
+            {"role": "user", "content": json.dumps(segments)}
+        ], 
         response_format={"type": "json_object"}
     )
-    scenes = json.loads(response.choices[0].message.content)["scenes"]
     
+    # 2. Resilient JSON Parsing
+    raw_content = response.choices[0].message.content.strip()
+    
+    # Clean up markdown code blocks if the model returned them
+    if raw_content.startswith("```"):
+        raw_content = raw_content.strip("`")
+        if raw_content.startswith("json"):
+            raw_content = raw_content[4:].strip()
+
+    parsed = json.loads(raw_content)
+
+    # Automatically handle direct lists, dictionary wrapping, or dynamic keys
+    if isinstance(parsed, list):
+        scenes = parsed
+    elif isinstance(parsed, dict) and "scenes" in parsed:
+        scenes = parsed["scenes"]
+    elif isinstance(parsed, dict):
+        # Fallback: extract the first list value found in the dictionary
+        scenes = next((v for v in parsed.values() if isinstance(v, list)), [])
+    else:
+        scenes = []
+
+    print(f"🎬 Total scenes to generate: {len(scenes)}")
+
+    # 3. Image Generation with Retry Logic
     for i, scene in enumerate(scenes):
-        prompt = urllib.parse.quote(scene["visual_prompt"])
+        prompt = urllib.parse.quote(scene.get("visual_prompt", ""))
         img_path = f"scene_{i:03d}.png"
         
-        # --- Retry Logic ---
         success = False
         for attempt in range(3):
             try:
-                print(f"Fetching scene {i+1} (Attempt {attempt+1})...")
-                url = f"https://image.pollinations.ai/prompt/{prompt}?width=768&height=1344&nologo=true&seed={i+attempt}"
-                response = requests.get(url, timeout=60) # Increased timeout to 60s
+                print(f"Fetching scene {i+1}/{len(scenes)} (Attempt {attempt+1})...")
+                url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){prompt}?width=768&height=1344&nologo=true&seed={i+attempt}"
+                img_response = requests.get(url, timeout=60)
                 
-                if response.status_code == 200 and len(response.content) > 1000:
+                if img_response.status_code == 200 and len(img_response.content) > 1000:
                     with open(img_path, 'wb') as f:
-                        f.write(response.content)
+                        f.write(img_response.content)
                     scene["image_path"] = img_path
                     success = True
                     break
                 else:
-                    print(f"Attempt {attempt+1} failed (Status: {response.status_code})")
+                    print(f"Attempt {attempt+1} failed (Status: {img_response.status_code})")
             except Exception as e:
                 print(f"Attempt {attempt+1} error: {e}")
-            time.sleep(5) # Wait 5 seconds before retrying
+            
+            time.sleep(5)  # Wait 5 seconds before retrying
         
         if not success:
-            print(f"❌ Critical Failure: Could not generate scene {i+1}")
-            # Fallback: create a blank 1x1 pixel image so FFmpeg doesn't crash
-            with open(img_path, 'wb') as f: f.write(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
+            print(f"❌ Critical Failure: Could not generate scene {i+1}, using fallback transparent pixel.")
+            # Fallback 1x1 PNG image so downstream FFmpeg processes don't break
+            with open(img_path, 'wb') as f:
+                f.write(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
             scene["image_path"] = img_path
 
-    with open("storyboard.json", "w") as f: json.dump(scenes, f, indent=4)
+    with open("storyboard.json", "w") as f:
+        json.dump(scenes, f, indent=4)
+        
     return scenes
 
 # --- 4. COMPILE & SUBTITLE ---
