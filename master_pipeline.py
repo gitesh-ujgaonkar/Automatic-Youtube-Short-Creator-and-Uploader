@@ -224,7 +224,7 @@ def generate_storyboard(segments):
         for attempt in range(3):
             try:
                 print(f"   🖼️ Fetching Image {i+1}/{len(scenes)} (Attempt {attempt+1})...")
-                url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){prompt}?width=768&height=1344&nologo=true&seed={i+attempt}"
+                url = f"https://image.pollinations.ai/prompt/{prompt}?width=768&height=1344&nologo=true&seed={i+attempt}"
                 img_response = requests.get(url, timeout=60)
                 
                 if img_response.status_code == 200 and len(img_response.content) > 1000:
