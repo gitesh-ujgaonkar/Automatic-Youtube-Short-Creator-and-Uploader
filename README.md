@@ -2,6 +2,9 @@
 
 Welcome to my auto-shorts generator! This project automate the entire process of creating and uploading YouTube Shorts. Its designed to run completely hands-free once you set it up. I built this because I wanted a pipeline that handles everything from the idea generation to the final video upload without me having to edit anything manually.
 
+#Example video 
+https://youtube.com/shorts/ndM3C0WDQOM?si=tEWvqWhu3KX_X0u0
+
 ## What it does (The non-technical version)
 Basically, the script thinks of a random interesting topic, writes a short script, generates AI images for the scenes, stitches them together with audio and subtitles, and then uploads the final video to your YouTube channel. You just run the script and go grab a coffee.
 
