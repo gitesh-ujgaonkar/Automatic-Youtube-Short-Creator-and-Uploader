@@ -66,44 +66,67 @@ def is_too_similar(new_title, history):
             return True
     return False
 
-# --- 1. SCRIPT GENERATOR ---
-def generate_curiosity_script():
-    print("\n--- 1. Generating Script ---")
-    history = get_history()
-    history_str = ", ".join(history[-50:])
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "Auto_youtuber"))
+from story_fetcher import get_story, get_available_genres
+
+# --- 1. SCRIPT GENERATOR (REDDIT & QUORA STORY ADAPTER) ---
+def generate_curiosity_script(genre="random"):
+    print(f"\n--- 1. Sourcing Story from Reddit & Quora (Genre: {genre}) ---")
     
-    # CRITICAL FIX: The prompt now strictly forbids stage directions in the script field
-    system_prompt = f"""You are a viral YouTube Shorts scriptwriter. 
-    IMPORTANT: Do NOT write about these topics, they have been done: {history_str}
+    # 1. Fetch authentic story
+    story = get_story(genre=genre)
+    print(f"📖 Sourced Story: '{story['title']}' ({story['source']})")
     
-    Output ONLY in JSON format exactly like this: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}
+    genre_tag = story.get("genre", "story").replace(" ", "")
     
-    CRITICAL RULE FOR "script": It must ONLY contain the exact words the narrator will speak out loud. Do NOT include any stage directions, brackets, narrator labels, or visual prompts in the script field. Pure spoken text only."""
+    system_prompt = f"""You are an elite YouTube Shorts script adapter.
+Adapt the following REAL story from {story['source']} into a viral, high-retention 45-50 second voiceover narration.
+
+AUTHENTIC STORY DETAILS:
+Title: {story['title']}
+Hook: {story['hook']}
+Full Story: {story['body']}
+
+RULES:
+1. Preserve 100% of the true story plot, twist, and drama. Do NOT make up unrelated facts.
+2. The "script" MUST contain ONLY the exact words the narrator speaks out loud. No stage directions, no narrator labels, no visual prompts.
+3. Aim for approx 80-100 punchy spoken words.
+4. Output in JSON format exactly: {{"title": "...", "script": "...", "description": "...", "tags": ["tag1", "tag2"]}}"""
     
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": "Write a unique, fascinating short script on a new topic."}
+        {"role": "user", "content": f"Adapt this real {genre_tag} story for voiceover narration now."}
     ]
     
-    for attempt in range(5):
-        print(f"⏳ Calling LLM for script generation (Attempt {attempt+1})...")
+    try:
+        print(f"⏳ Calling Groq LLM to adapt Reddit/Quora story into script...")
         response = client.chat.completions.create(
             model=best_model,
             messages=messages,
-            temperature=0.9,
+            temperature=0.8,
             response_format={"type": "json_object"}
         )
         data = json.loads(response.choices[0].message.content)
-        
-        if is_too_similar(data.get("title", ""), history):
-            print(f"⚠️ Duplicate detected: '{data['title']}'. Retrying...")
-            messages.append({"role": "assistant", "content": json.dumps(data)})
-            messages.append({"role": "user", "content": "We already did this. Please provide a completely different topic."})
-        else:
-            print(f"✅ Unique topic approved: '{data['title']}'")
-            print(f"📝 Script preview: {data['script'][:100]}...")
-            return data
-    return data
+        if not data.get("title"):
+            data["title"] = story["title"]
+        if not data.get("description"):
+            data["description"] = f"Story from {story['source']}. #shorts #redditstories #{genre_tag}"
+        print(f"✅ Adapted script: '{data['title']}'")
+        print(f"📝 Script preview: {data['script'][:100]}...")
+        return data
+    except Exception as e:
+        print(f"⚠️ Groq call failed ({e}). Using direct authentic story fallback...")
+        # Clean sentences fallback
+        sentences = re.split(r'(?<=[.!?]) +', story['body'].strip())
+        script_text = " ".join(sentences[:5]) if sentences else story['body'][:400]
+        return {
+            "title": story["title"],
+            "script": script_text,
+            "description": f"{story['title']}\n\nSourced from {story['source']} by {story['author']}.\n\n#shorts #redditstories #{genre_tag}",
+            "tags": ["reddit stories", "storytime", genre_tag, "viral", "shorts"]
+        }
+
 
 # --- 2. AUDIO GENERATOR ---
 async def generate_audio(script_text):
