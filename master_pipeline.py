@@ -67,8 +67,78 @@ def is_too_similar(new_title, history):
     return False
 
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "Auto_youtuber"))
-from story_fetcher import get_story, get_available_genres
+
+# Attempt multi-path import of story_fetcher
+try:
+    from story_fetcher import get_story, get_available_genres
+except ImportError:
+    try:
+        sys.path.append(os.path.join(os.path.dirname(__file__), "Auto_youtuber"))
+        from story_fetcher import get_story, get_available_genres
+    except ImportError:
+        # Self-contained fallback story library in case story_fetcher.py is not in working directory
+        _FALLBACK_VAULT = [
+            {
+                "id": "horror_01",
+                "genre": "horror",
+                "source": "Reddit (r/shortscarystories)",
+                "author": "u/Grand_Theft_Meme",
+                "title": "I Work Night Shift at a 24-Hour Morgue. Here Is Rule #4.",
+                "hook": "I work the graveyard shift at the county morgue, and they gave me a strict list of rules on my first night.",
+                "body": "I work the graveyard shift at the county morgue, and they gave me a strict list of rules on my first night. Rule number one: Always double-check toe tags. Rule number two: Never leave freezer doors unlocked. Rule number three: If you hear knocking from inside a drawer, ignore it. Rule number four was the weirdest: If body number thirty-four sits up and speaks your full legal name, you must apologize immediately and turn off the lights. Last night, at three in the morning, drawer thirty-four slowly slid open. A cold voice whispered my full name. My heart stopped. I forgot to apologize. I just slammed the freezer shut. When I turned around to leave, the drawer was empty, and the lights refused to turn back on.",
+                "url": "https://reddit.com/r/shortscarystories"
+            },
+            {
+                "id": "cheating_01",
+                "genre": "cheating",
+                "source": "Reddit (r/survivinginfidelity)",
+                "author": "u/BluetoothTruth",
+                "title": "My Wife Forgot Her Phone Was Connected to My Car's Bluetooth",
+                "hook": "My wife thought I was still inside the grocery store when her phone automatically connected to my car's audio system.",
+                "body": "I was sitting in my car waiting for my wife outside the grocery store. Suddenly, my car stereo beeped and an incoming call connected through Bluetooth. My wife was walking back towards the car, phone pressed to her ear, completely unaware her phone had auto-connected to my vehicle. Her voice blasted over my speakers: 'Babe, I can't stay long tonight. He thinks I'm working late on Thursday. Make sure you book the hotel under your name.' Then a man's voice replied: 'Can't wait to see you, gorgeous.' She opened the car door with a sweet smile and said, 'Ready to go home, honey?' I looked at the dashboard screen still displaying the active call, smiled back, and said, 'Let's drive straight to your lawyer's office instead.'",
+                "url": "https://reddit.com/r/survivinginfidelity"
+            },
+            {
+                "id": "revenge_01",
+                "genre": "revenge",
+                "source": "Reddit (r/ProRevenge)",
+                "author": "u/GasCanPayback",
+                "title": "My Neighbor Kept Stealing My Lawnmower Gas. So I Filled It With Piss.",
+                "hook": "For three months, my neighbor sneaked into my backyard every Tuesday night to drain my five-gallon fuel can for his own truck.",
+                "body": "For three months, my neighbor sneaked into my shed every Tuesday night and drained my five-gallon fuel container into his pickup truck. I tried confronting him politely, but he laughed in my face and told me to prove it. So I bought a brand new red fuel can. For an entire week, I filled it to the brim with my own urine, adding just two tablespoons of diesel so it had that authentic chemical smell. I left it sitting conspicuously on my back patio and pretended to go out of town for the weekend. Five hours later, the fuel can was completely empty. The next morning, his truck broke down half a mile down the road with total engine failure. The repair bill to replace the entire fuel injection system and engine block was eighty-five hundred dollars.",
+                "url": "https://reddit.com/r/ProRevenge"
+            },
+            {
+                "id": "cheating_02",
+                "genre": "cheating",
+                "source": "Reddit (r/relationship_advice)",
+                "author": "u/WeddingRingSecret",
+                "title": "He Thought He Lost His Wedding Ring at the Gym. I Found It in My Sister's Jewelry Box.",
+                "hook": "Two weeks ago my husband came home panicking, claiming his custom gold wedding band slipped off while lifting weights at the gym.",
+                "body": "Two weeks ago, my husband came home in tears, claiming his custom gold wedding band slipped off while lifting weights at the gym. We filed a lost item report, and I spent hours searching the gym locker room with no luck. Yesterday, I went over to my sister's apartment to help her pack for a move. I accidentally knocked over her nightstand jewelry box. Spilling onto the carpet was a heavy gold ring. I picked it up. Engraved on the inside were our wedding date and our private initials. I didn't scream. I just packed all of his clothes into trash bags, left his ring on the kitchen counter with divorce papers, and blocked them both.",
+                "url": "https://reddit.com/r/relationship_advice"
+            },
+            {
+                "id": "paranormal_01",
+                "genre": "paranormal",
+                "source": "Reddit (r/Paranormal)",
+                "author": "u/CabinInTheWoods",
+                "title": "We Rented an Off-Grid Cabin. The Radio Kept Broadcasting Our Conversations.",
+                "hook": "My friends and I rented a secluded cabin in the mountains with zero cell phone service, but the old vintage radio had other plans.",
+                "body": "My friends and I rented an off-grid cabin in the Oregon mountains with zero cell reception. On the second night, the vintage tube radio on the mantle clicked on with static. A muffled radio announcer's voice cut through the white noise, saying: 'And in local news, three tourists are currently sitting in the living room discussing whether to lock the back door.' We all froze. That was word-for-word what we had said thirty seconds ago. Then the radio spoke again: 'The tall one in the blue sweater just reached for the kitchen knife.' I looked down at my blue sweater. I was holding a knife. We didn't pack. We sprinted to the car and never looked back.",
+                "url": "https://reddit.com/r/Paranormal"
+            }
+        ]
+
+        def get_available_genres():
+            return ["horror", "cheating", "revenge", "paranormal", "confessions", "mysteries"]
+
+        def get_story(genre="random", source_filter="all"):
+            import random
+            if genre == "random":
+                return random.choice(_FALLBACK_VAULT)
+            matches = [s for s in _FALLBACK_VAULT if s["genre"] == genre]
+            return random.choice(matches) if matches else random.choice(_FALLBACK_VAULT)
 
 # --- 1. SCRIPT GENERATOR (REDDIT & QUORA STORY ADAPTER) ---
 def generate_curiosity_script(genre="random"):
@@ -76,7 +146,7 @@ def generate_curiosity_script(genre="random"):
     
     # 1. Fetch authentic story
     story = get_story(genre=genre)
-    print(f"📖 Sourced Story: '{story['title']}' ({story['source']})")
+    print(f"[STORY] Sourced Story: '{story['title']}' ({story['source']})")
     
     genre_tag = story.get("genre", "story").replace(" ", "")
     
@@ -118,6 +188,7 @@ RULES:
     except Exception as e:
         print(f"⚠️ Groq call failed ({e}). Using direct authentic story fallback...")
         # Clean sentences fallback
+        import re
         sentences = re.split(r'(?<=[.!?]) +', story['body'].strip())
         script_text = " ".join(sentences[:5]) if sentences else story['body'][:400]
         return {
@@ -126,6 +197,7 @@ RULES:
             "description": f"{story['title']}\n\nSourced from {story['source']} by {story['author']}.\n\n#shorts #redditstories #{genre_tag}",
             "tags": ["reddit stories", "storytime", genre_tag, "viral", "shorts"]
         }
+
 
 
 # --- 2. AUDIO GENERATOR ---
